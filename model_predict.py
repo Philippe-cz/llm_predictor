@@ -16,7 +16,7 @@ from prompts import (
 from helpers_functions import StockWizzard
 import json
 import ast
-from helpers_functions import merge_df, combined_score
+from helpers_functions import merge_df, combined_score, calculate_rsi
 import mlflow
 import logging
 import shutil
@@ -93,13 +93,15 @@ class LLMPredictions(mlflow.pyfunc.PythonModel):
             ticker, self.secret_key_alpha
         )
 
-        indicators_bool = True
-        if indicators_bool:
+        if event.get("indicators")[:3] == "EMA":
             # Apply indicators...
             print("it")
             stock_data = calculate_ema(stock_data, column_name="Close", ema_period=13)
             stock_data = calculate_ema(stock_data, column_name="Close", ema_period=8)
-            # stock_data = calculate_ema(stock_data, column_name="Close", ema_period=4)
+
+        rsi_bool = False
+        if rsi_bool:
+            stock_data["RSI"] = calculate_rsi(stock_data["Close"], 14)
 
         target_folder = folder_chart_images
 
@@ -336,12 +338,12 @@ models = [
 ticker = "ON"
 indicators = "EMA13, EMA8"  #
 timeframe = "weekly"
-model = models[1]
+model = models[0]
 train_window = 4
 target_window = 1
 few_shot_train_set = 10
 specific_few_shots = False
-test_set = 25
+test_set = 50
 
 predict = False
 

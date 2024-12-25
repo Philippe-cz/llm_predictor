@@ -42,6 +42,37 @@ secret_key = os.getenv("openai_general_key")
 secret_key_alpha = os.getenv("secret_key_alpha")
 
 
+def calculate_rsi(data, period=14):
+    """
+    Calculate the Relative Strength Index (RSI).
+
+    Parameters:
+        data (pd.Series): A pandas Series of stock prices (typically the closing prices).
+        period (int): The look-back period for calculating RSI (default is 14).
+
+    Returns:
+        pd.Series: A pandas Series containing the RSI values.
+    """
+    # Calculate the differences between consecutive prices
+    delta = data.diff()
+
+    # Separate gains and losses
+    gains = delta.where(delta > 0, 0.0)
+    losses = -delta.where(delta < 0, 0.0)
+
+    # Calculate the exponential moving average (EMA) of gains and losses
+    avg_gain = gains.rolling(window=period, min_periods=1).mean()
+    avg_loss = losses.rolling(window=period, min_periods=1).mean()
+
+    # Calculate the Relative Strength (RS)
+    rs = avg_gain / avg_loss
+
+    # Calculate the RSI
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi
+
+
 def combined_score(WTR: float, MND: float, beta: float = 1.0) -> float:
     """
     Calculate a combined metric that balances winning trades ratio (WTR)
@@ -164,7 +195,6 @@ class StockWizzard:
         target_final_date = stock_data["Date"].to_list()[0]
 
         ### TODO:To be tested
-
         if specific_few_shots == "True":
             current_date = pd.Timestamp(target_final_date)
             # Calculate 12 months back
@@ -551,7 +581,7 @@ class StockWizzard:
             window_df["Date"]
         )  # Ensure Date column is datetime
         window_df.set_index("Date", inplace=True)  # Set Date as the index
-
+        volume_flag = True if not "RSI" in window_df.columns else False
         # Create a candlestick chart using mplfinance
         fig, axlist = mpf.plot(
             window_df,
@@ -559,7 +589,7 @@ class StockWizzard:
             style="charles",
             title="Candlestick Chart",
             ylabel="Price ($)",
-            volume=True,  # Enable the volume subplot
+            volume=volume_flag,
             show_nontrading=True,
             returnfig=True,  # Return the figure object
             volume_alpha=1,
@@ -567,8 +597,9 @@ class StockWizzard:
 
         # Get the main candlestick and volume axes
         ax_candlestick = axlist[0]  # Main chart
-        ax_volume = axlist[2]  # Volume chart
-        ax_volume.set_facecolor("black")
+        if volume_flag:
+            ax_volume = axlist[2]  # Volume chart
+            ax_volume.set_facecolor("black")
 
         # Plot moving averages if they exist in the DataFrame
         ma_columns = [col for col in window_df.columns if "EMA" in col or "SMA" in col]
@@ -598,6 +629,37 @@ class StockWizzard:
 
         # Rotate the date labels for better readability
         plt.setp(ax_candlestick.get_xticklabels(), rotation=45, ha="right")
+
+        # Plot RSI if "RSI" column exists
+        if "RSI" in window_df.columns:
+            # Create a new subplot for RSI
+            ax_rsi = fig.add_axes([0.1, 0.1, 0.8, 0.2])  # Adjust position as needed
+            ax_rsi.plot(
+                window_df.index,
+                window_df["RSI"],
+                label="RSI",
+                color="blue",
+                linewidth=1.5,
+            )
+            ax_rsi.axhline(
+                70, color="red", linestyle="--", linewidth=0.8, label="Overbought (70)"
+            )
+            ax_rsi.axhline(
+                30, color="green", linestyle="--", linewidth=0.8, label="Oversold (30)"
+            )
+            ax_rsi.set_title("RSI Chart")
+            ax_rsi.set_ylabel("RSI")
+            ax_rsi.set_xlabel("Date")
+            ax_rsi.legend(loc="upper left")
+
+            # Customize the x-axis to display dates correctly
+            ax_rsi.xaxis.set_major_locator(
+                mdates.WeekdayLocator(byweekday=mdates.MONDAY)
+            )
+            ax_rsi.xaxis.set_major_formatter(DateFormatter("%Y-%m-%d"))
+
+            # Rotate the date labels for better readability
+            plt.setp(ax_rsi.get_xticklabels(), rotation=45, ha="right")
 
         return fig
 
@@ -1131,7 +1193,7 @@ class StockWizzard:
         df["trade_tracking"] = 0
         old_trade_closed = False
 
-        for index, row in df.iterrows():
+        for index, row in df.iloc[::-1].iterrows():
             current_open_price = row["Open"]
             current_high_price = row["High"]
             current_predicted_high = row["Predicted_High"]
